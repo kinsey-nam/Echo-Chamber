@@ -1,18 +1,15 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from io import BytesIO
-import base64
-import textwrap
 import requests
+import textwrap
 import os
 
 # ----------------------------------------
 # AI helper (replace with Gemini/Claude/etc.)
 # ----------------------------------------
-# This example assumes an OpenAI-compatible /v1/chat/completions endpoint.
-# You can adapt the 'call_ai' function to your preferred AI provider.
-AI_API_KEY = os.getenv("AI_API_KEY")  # set in your environment
+AI_API_KEY = os.getenv("AI_API_KEY")
 AI_API_URL = os.getenv("AI_API_URL", "https://api.openai.com/v1/chat/completions")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 
@@ -64,14 +61,10 @@ def matrix_power(P, n):
     return np.linalg.matrix_power(P, n)
 
 def is_irreducible(P):
-    """Check irreducibility via adjacency graph reachability (3-state)."""
-    # Create binary adjacency: edge i->j if P[i,j] > 0.
     A = (P > 0).astype(int)
-    # Compute reachability via powers A^k.
     reach = np.copy(A)
-    for _ in range(3):  # up to number of states
+    for _ in range(3):
         reach = reach + reach.dot(A)
-    # Strongly connected if every state can reach every other.
     return np.all(reach > 0)
 
 def gcd(numbers):
@@ -80,13 +73,9 @@ def gcd(numbers):
     return reduce(_gcd, numbers)
 
 def is_aperiodic(P, max_steps=20, tol=1e-12):
-    """
-    A small heuristic: if for each state i, the gcd of times n <= max_steps
-    with (P^n)[i,i] > 0 is 1, we call the chain aperiodic.
-    """
     n_states = P.shape[0]
     Pn = np.eye(n_states)
-    return_all = []
+    flags = []
     for i in range(n_states):
         return_times = []
         Pn = np.eye(n_states)
@@ -95,17 +84,19 @@ def is_aperiodic(P, max_steps=20, tol=1e-12):
             if Pn[i, i] > tol:
                 return_times.append(n)
         if not return_times:
-            # No return detected within max_steps; treat as not aperiodic.
-            return_all.append(False)
+            flags.append(False)
             continue
         period_i = gcd(return_times)
-        return_all.append(period_i == 1)
-    return all(return_all)
+        flags.append(period_i == 1)
+    return all(flags)
 
 # ----------------------------------------
 # Streamlit layout
 # ----------------------------------------
-st.set_page_config(page_title="3-State Social Media Echo Chamber Markov Chain", layout="wide")
+st.set_page_config(
+    page_title="Social Media Echo Chamber Markov Chain",
+    layout="wide"
+)
 
 st.title("Social Media Echo Chamber: 3-State Markov Chain Simulator")
 
@@ -114,28 +105,28 @@ st.markdown(
     "**Echo Chamber** (highly homogeneous content)."
 )
 
-# Sidebar: general controls
+# Sidebar: controls
 st.sidebar.header("Simulation Controls")
 
 T = st.sidebar.number_input(
     "Number of time steps",
     min_value=1,
     max_value=500,
-    value=30,
+    value=50,
     step=1,
 )
 
 n_sims = st.sidebar.number_input(
-    "Number of simulations (informational only; probabilities are analytic)",
+    "Number of simulations (informational; model is analytic)",
     min_value=1,
     max_value=1000,
     value=1,
     step=1,
 )
 
-st.sidebar.markdown(
-    "Simulations parameter is included for completeness; this tool computes exact "
-    "probabilities via \( v_0 P^n \) rather than Monte Carlo sampling."
+st.sidebar.caption(
+    "Probabilities are computed exactly via \( v_0 P^n \), "
+    "not by Monte Carlo sampling."
 )
 
 # ----------------------------------------
@@ -147,7 +138,8 @@ col_v, col_P = st.columns([1, 3])
 
 with col_v:
     st.subheader("Initial state vector \(v_0\)")
-    st.markdown("Specify the starting probability for each state; they must sum to 1.")
+    st.markdown("Specify the starting probability for each state (must sum to 1).")
+
     v0_d = st.number_input("Discovery (v0[0])", 0.0, 1.0, 1.0, 0.01)
     v0_r = st.number_input("Rabbit Hole (v0[1])", 0.0, 1.0, 0.0, 0.01)
     v0_e = st.number_input("Echo Chamber (v0[2])", 0.0, 1.0, 0.0, 0.01)
@@ -156,29 +148,46 @@ with col_v:
 with col_P:
     st.subheader("Transition matrix \(P\)")
     st.markdown(
-        "Each row gives the probabilities of moving from the current state to the next state; each row must sum to 1."
+        "Each row is the probability of moving **from** one state **to** the next state "
+        "in a single time step (rows must each sum to 1)."
     )
+
     P = np.zeros((3, 3))
     labels = ["From Discovery", "From Rabbit Hole", "From Echo Chamber"]
+    defaults = [
+        [0.3, 0.5, 0.2],
+        [0.1, 0.7, 0.2],
+        [0.05, 0.2, 0.75],
+    ]
+
     for i in range(3):
         st.markdown(f"**{labels[i]}**")
         c1, c2, c3 = st.columns(3)
         with c1:
-            P[i, 0] = st.number_input(f"→ Discovery (row {i+1}, col 1)", 0.0, 1.0, 0.3 if i == 0 else (0.1 if i == 1 else 0.05), 0.01)
+            P[i, 0] = st.number_input(
+                f"→ Discovery (row {i+1}, col 1)",
+                0.0, 1.0, float(defaults[i][0]), 0.01
+            )
         with c2:
-            P[i, 1] = st.number_input(f"→ Rabbit Hole (row {i+1}, col 2)", 0.0, 1.0, 0.5 if i == 0 else (0.7 if i == 1 else 0.2), 0.01)
+            P[i, 1] = st.number_input(
+                f"→ Rabbit Hole (row {i+1}, col 2)",
+                0.0, 1.0, float(defaults[i][1]), 0.01
+            )
         with c3:
-            P[i, 2] = st.number_input(f"→ Echo Chamber (row {i+1}, col 3)", 0.0, 1.0, 0.2 if i == 0 else (0.2 if i == 1 else 0.75), 0.01)
+            P[i, 2] = st.number_input(
+                f"→ Echo Chamber (row {i+1}, col 3)",
+                0.0, 1.0, float(defaults[i][2]), 0.01
+            )
 
-# Validation messages
+# Validation
 valid_v0 = is_valid_prob_vector(v0)
 valid_P = is_valid_transition_matrix(P)
 
 if not valid_v0:
-    st.error(f"Initial state vector v0 must have entries in [0,1] and sum to 1. Current sum = {v0.sum():.4f}")
+    st.error(f"Initial state vector v0 must be in [0,1] and sum to 1. Current sum = {v0.sum():.4f}")
 if not valid_P:
     st.error(
-        "Each row of the transition matrix P must have entries in [0,1] and each row must sum to 1.\n"
+        "Each row of P must have entries in [0,1] and row sums must be 1.\n"
         f"Current row sums: {[f'{s:.4f}' for s in P.sum(axis=1)]}"
     )
 
@@ -193,39 +202,71 @@ if run:
     probs = simulate_markov_chain(P, v0, T)
     time_steps = np.arange(T + 1)
 
-    st.subheader("Time series of probabilities")
+    # Prepare DataFrame for Streamlit native charts
+    df_probs = pd.DataFrame(
+        probs,
+        columns=STATE_NAMES,
+        index=time_steps
+    )
+    df_probs.index.name = "Time step"
 
-    fig_line, ax_line = plt.subplots()
-    for idx, name in enumerate(STATE_NAMES):
-        ax_line.plot(time_steps, probs[:, idx], label=name)
-    ax_line.set_xlabel("Time step n")
-    ax_line.set_ylabel("Probability")
-    ax_line.set_title("State probabilities over time")
-    ax_line.set_ylim(0, 1)
-    ax_line.grid(True)
-    ax_line.legend()
-    st.pyplot(fig_line)
+    # Top row: line chart + key metrics
+    line_col, metrics_col = st.columns([3, 1])
 
-    st.subheader("Probability distribution at selected time step")
+    with line_col:
+        st.subheader("State probabilities over time")
+        # Use Streamlit's native line chart for crisp interactive view
+        st.line_chart(df_probs)  # each column becomes a line[web:37]
+    with metrics_col:
+        st.subheader("Summary")
+        final_probs = df_probs.iloc[-1]
+        st.metric("P(Discovery) at final step", f"{final_probs['Discovery']:.3f}")
+        st.metric("P(Rabbit Hole) at final step", f"{final_probs['Rabbit Hole']:.3f}")
+        st.metric("P(Echo Chamber) at final step", f"{final_probs['Echo Chamber']:.3f}")
+
+    # Middle row: bar chart + table for selected time
+    st.subheader("Distribution at a specific time step")
     selected_t = st.slider("Select time step n", 0, T, min(10, T))
-    selected_probs = probs[selected_t, :]
+    selected_probs = df_probs.loc[selected_t]
 
-    fig_bar, ax_bar = plt.subplots()
-    ax_bar.bar(STATE_NAMES, selected_probs, color=["tab:blue", "tab:orange", "tab:green"])
-    ax_bar.set_ylim(0, 1)
-    ax_bar.set_ylabel("Probability")
-    ax_bar.set_title(f"Probability distribution at time step n = {selected_t}")
-    for i, v in enumerate(selected_probs):
-        ax_bar.text(i, v + 0.01, f"{v:.3f}", ha="center")
-    st.pyplot(fig_bar)
+    bar_col, table_col = st.columns([2, 2])
+    with bar_col:
+        st.markdown(f"**Probability distribution at time step n = {selected_t}**")
+        st.bar_chart(
+            pd.DataFrame(
+                selected_probs,
+                columns=["Probability"]
+            )
+        )  # native bar chart[web:35]
+    with table_col:
+        st.markdown("Numeric values")
+        st.dataframe(
+            selected_probs.to_frame(name="Probability").style.format("{:.4f}")
+        )
 
+    # Optional: heatmap of P^n * e_D (prob starting fully in each state) across time
+    st.subheader("Heatmap: probability of each state over time")
+    fig_hm, ax_hm = plt.subplots(figsize=(6, 3))
+    im = ax_hm.imshow(probs.T, aspect="auto", origin="lower", cmap="viridis")
+    ax_hm.set_yticks(range(len(STATE_NAMES)))
+    ax_hm.set_yticklabels(STATE_NAMES)
+    ax_hm.set_xlabel("Time step")
+    ax_hm.set_title("Heatmap of state probabilities")
+    fig_hm.colorbar(im, ax=ax_hm, label="Probability")
+    fig_hm.tight_layout()
+    st.pyplot(fig_hm)
+
+    # P^n display
     st.subheader("Transition matrix \(P^n\)")
-    n_for_matrix = st.number_input("Time step n for P^n", min_value=1, max_value=500, value=min(10, T), step=1)
+    n_for_matrix = st.number_input(
+        "Time step n for P^n", min_value=1, max_value=500, value=min(10, T), step=1
+    )
     Pn = matrix_power(P, int(n_for_matrix))
+    df_Pn = pd.DataFrame(Pn, columns=STATE_NAMES, index=STATE_NAMES)
     st.markdown(f"Matrix \(P^{int(n_for_matrix)}\):")
-    st.dataframe(pd := __import__("pandas").DataFrame(Pn, columns=STATE_NAMES, index=STATE_NAMES))
+    st.dataframe(df_Pn.style.format("{:.4f}"))
 
-    # Irreducible and aperiodic checks
+    # Chain properties
     st.subheader("Chain properties")
 
     irreducible = is_irreducible(P)
@@ -238,8 +279,8 @@ if run:
         st.metric("Aperiodic?", "Yes" if aperiodic else "No")
 
     st.markdown(
-        "- **Irreducible**: every state can be reached from every other state with positive probability in some number of steps.\n"
-        "- **Aperiodic**: each state can return to itself at irregular times so that the greatest common divisor of return times is 1."
+        "- **Irreducible**: every state can eventually reach every other state.\n"
+        "- **Aperiodic**: returns to a state do not happen on a fixed cycle only."
     )
 
     # ----------------------------------------
@@ -278,9 +319,9 @@ if run:
         st.text(diagram)
 
     # ----------------------------------------
-    # AI: verbal explanation of irreducible/aperiodic
+    # AI: explanation of irreducible/aperiodic
     # ----------------------------------------
-    st.subheader("AI explanation of irreducibility and aperiodicity")
+    st.subheader("AI explanation of chain behaviour")
 
     explain_prompt = f"""
     You are explaining properties of a 3-state Markov Chain model for a social media echo chamber
