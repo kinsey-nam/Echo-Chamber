@@ -1,7 +1,6 @@
 streamlit
 numpy
 matplotlib==3.9.2
-BytesIO
 base64
 textwrap
 requests
