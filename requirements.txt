@@ -1,6 +1,6 @@
 streamlit
 numpy
-matplotlib.pyplot
+matplotlib==3.9.2
 BytesIO
 base64
 textwrap
