@@ -1,7 +1,5 @@
 streamlit
 numpy
 matplotlib==3.9.2
-base64
-textwrap
+pandas
 requests
-os
