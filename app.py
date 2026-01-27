@@ -63,7 +63,7 @@ def matrix_power(P, n):
 def is_irreducible(P):
     A = (P > 0).astype(int)
     reach = np.copy(A)
-    for _ in range(3):
+    for _ in range(3):  # up to number of states
         reach = reach + reach.dot(A)
     return np.all(reach > 0)
 
@@ -105,7 +105,7 @@ st.markdown(
     "**Echo Chamber** (highly homogeneous content)."
 )
 
-# Sidebar: controls
+# Sidebar controls
 st.sidebar.header("Simulation Controls")
 
 T = st.sidebar.number_input(
@@ -202,7 +202,6 @@ if run:
     probs = simulate_markov_chain(P, v0, T)
     time_steps = np.arange(T + 1)
 
-    # Prepare DataFrame for Streamlit native charts
     df_probs = pd.DataFrame(
         probs,
         columns=STATE_NAMES,
@@ -210,41 +209,42 @@ if run:
     )
     df_probs.index.name = "Time step"
 
-    # Top row: line chart + key metrics
+    # Line chart + metrics
     line_col, metrics_col = st.columns([3, 1])
 
     with line_col:
         st.subheader("State probabilities over time")
-        # Use Streamlit's native line chart for crisp interactive view
-        st.line_chart(df_probs)  # each column becomes a line[web:37]
+        st.line_chart(df_probs)  # one line per state[web:37]
     with metrics_col:
-        st.subheader("Summary")
+        st.subheader("Final-step probabilities")
         final_probs = df_probs.iloc[-1]
-        st.metric("P(Discovery) at final step", f"{final_probs['Discovery']:.3f}")
-        st.metric("P(Rabbit Hole) at final step", f"{final_probs['Rabbit Hole']:.3f}")
-        st.metric("P(Echo Chamber) at final step", f"{final_probs['Echo Chamber']:.3f}")
+        st.metric("P(Discovery)", f"{final_probs['Discovery']:.3f}")
+        st.metric("P(Rabbit Hole)", f"{final_probs['Rabbit Hole']:.3f}")
+        st.metric("P(Echo Chamber)", f"{final_probs['Echo Chamber']:.3f}")
 
-    # Middle row: bar chart + table for selected time
-    st.subheader("Distribution at a specific time step")
-    selected_t = st.slider("Select time step n", 0, T, min(10, T))
-    selected_probs = df_probs.loc[selected_t]
+    # Slider: probabilities at a chosen time step n
+    st.subheader("Inspect probabilities at a chosen time step")
+
+    n_view = st.slider("Select time step n", 0, T, min(10, T))  # main slider[web:56]
+    probs_n = df_probs.loc[n_view]
 
     bar_col, table_col = st.columns([2, 2])
+
     with bar_col:
-        st.markdown(f"**Probability distribution at time step n = {selected_t}**")
+        st.markdown(f"**Probability distribution at time step n = {n_view}**")
         st.bar_chart(
             pd.DataFrame(
-                selected_probs,
+                probs_n,
                 columns=["Probability"]
             )
-        )  # native bar chart[web:35]
+        )  # bar chart for that n[web:35]
     with table_col:
-        st.markdown("Numeric values")
+        st.markdown("Numeric values at this n")
         st.dataframe(
-            selected_probs.to_frame(name="Probability").style.format("{:.4f}")
+            probs_n.to_frame(name="Probability").style.format("{:.4f}")
         )
 
-    # Optional: heatmap of P^n * e_D (prob starting fully in each state) across time
+    # Heatmap over time
     st.subheader("Heatmap: probability of each state over time")
     fig_hm, ax_hm = plt.subplots(figsize=(6, 3))
     im = ax_hm.imshow(probs.T, aspect="auto", origin="lower", cmap="viridis")
@@ -351,3 +351,4 @@ if run:
 
 else:
     st.info("Adjust the inputs, then click **Run Simulation** once all probabilities are valid.")
+
