@@ -296,17 +296,15 @@ if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not
         min(10, T_stored),
         key="analytic_slider"
     )
-    probs_n = df_probs.loc[n_view]
+    probs_n = df_probs.loc[n_view]  # Series length 3
 
     bar_col, table_col = st.columns([2, 2])
     with bar_col:
         st.markdown(f"**P(X_n) at n = {n_view} for all states**")
-        st.bar_chart(
-            pd.DataFrame(
-                probs_n,
-                columns=["Probability"]
-            )
-        )
+        df_bar = pd.DataFrame(
+            {"State": STATE_NAMES, "Probability": probs_n.values}
+        ).set_index("State")
+        st.bar_chart(df_bar, use_container_width=True)
     with table_col:
         st.markdown("Numeric values at this n")
         st.dataframe(probs_n.to_frame(name="Probability").style.format("{:.4f}"))
@@ -362,12 +360,14 @@ elif mode == "Single run (one path)" and st.session_state.single_path is not Non
     state_idx = path[n_view_single]
     one_hot = np.zeros(3)
     one_hot[state_idx] = 1.0
-    df_one_hot = pd.DataFrame(one_hot, index=STATE_NAMES, columns=["Indicator"])
+    df_one_hot = pd.DataFrame(
+        {"State": STATE_NAMES, "Indicator": one_hot}
+    ).set_index("State")
 
     col_bar, col_info = st.columns([2, 2])
     with col_bar:
         st.markdown(f"**State indicator at time n = {n_view_single} (all 3 categories)**")
-        st.bar_chart(df_one_hot)
+        st.bar_chart(df_one_hot, use_container_width=True)
     with col_info:
         st.markdown(f"At n = {n_view_single}, the user is in **{STATE_NAMES[state_idx]}**.")
 
@@ -399,12 +399,10 @@ elif mode == "Ensemble (many paths)" and st.session_state.ensemble_probs is not 
     bar_col, table_col = st.columns([2, 2])
     with bar_col:
         st.markdown(f"**Fraction in each state at n = {n_view_ens}**")
-        st.bar_chart(
-            pd.DataFrame(
-                probs_n_ens,
-                columns=["Fraction"]
-            )
-        )
+        df_bar_ens = pd.DataFrame(
+            {"State": STATE_NAMES, "Fraction": probs_n_ens.values}
+        ).set_index("State")
+        st.bar_chart(df_bar_ens, use_container_width=True)
     with table_col:
         st.markdown("Numeric values at this n")
         st.dataframe(probs_n_ens.to_frame(name="Fraction").style.format("{:.4f}"))
