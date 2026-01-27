@@ -63,7 +63,7 @@ def matrix_power(P, n):
 def is_irreducible(P):
     A = (P > 0).astype(int)
     reach = np.copy(A)
-    for _ in range(3):  # up to number of states
+    for _ in range(3):
         reach = reach + reach.dot(A)
     return np.all(reach > 0)
 
@@ -104,6 +104,20 @@ st.markdown(
     "States: **Discovery** (diverse content), **Rabbit Hole** (increasingly similar content), "
     "**Echo Chamber** (highly homogeneous content)."
 )
+
+# Initialize session_state containers
+if "probs" not in st.session_state:
+    st.session_state.probs = None
+if "T" not in st.session_state:
+    st.session_state.T = None
+if "P" not in st.session_state:
+    st.session_state.P = None
+if "v0" not in st.session_state:
+    st.session_state.v0 = None
+if "irreducible" not in st.session_state:
+    st.session_state.irreducible = None
+if "aperiodic" not in st.session_state:
+    st.session_state.aperiodic = None
 
 # Sidebar controls
 st.sidebar.header("Simulation Controls")
@@ -191,17 +205,33 @@ if not valid_P:
         f"Current row sums: {[f'{s:.4f}' for s in P.sum(axis=1)]}"
     )
 
+# Run simulation button
 run = st.button("Run Simulation", disabled=not (valid_v0 and valid_P))
+
+# If clicked, compute once and store in session_state
+if run and valid_v0 and valid_P:
+    probs = simulate_markov_chain(P, v0, T)
+    st.session_state.probs = probs
+    st.session_state.T = T
+    st.session_state.P = P
+    st.session_state.v0 = v0
+    st.session_state.irreducible = is_irreducible(P)
+    st.session_state.aperiodic = is_aperiodic(P)
 
 # ----------------------------------------
 # Results section
 # ----------------------------------------
 st.header("Results")
 
-if run:
-    probs = simulate_markov_chain(P, v0, T)
-    time_steps = np.arange(T + 1)
+if st.session_state.probs is not None:
+    probs = st.session_state.probs
+    T_stored = st.session_state.T
+    P_stored = st.session_state.P
+    v0_stored = st.session_state.v0
+    irreducible = st.session_state.irreducible
+    aperiodic = st.session_state.aperiodic
 
+    time_steps = np.arange(T_stored + 1)
     df_probs = pd.DataFrame(
         probs,
         columns=STATE_NAMES,
@@ -214,7 +244,7 @@ if run:
 
     with line_col:
         st.subheader("State probabilities over time")
-        st.line_chart(df_probs)  # one line per state[web:37]
+        st.line_chart(df_probs)
     with metrics_col:
         st.subheader("Final-step probabilities")
         final_probs = df_probs.iloc[-1]
@@ -222,10 +252,16 @@ if run:
         st.metric("P(Rabbit Hole)", f"{final_probs['Rabbit Hole']:.3f}")
         st.metric("P(Echo Chamber)", f"{final_probs['Echo Chamber']:.3f}")
 
-    # Slider: probabilities at a chosen time step n
+    # Slider that only reads from stored simulation
     st.subheader("Inspect probabilities at a chosen time step")
 
-    n_view = st.slider("Select time step n", 0, T, min(10, T))  # main slider[web:56]
+    n_view = st.slider(
+        "Select time step n",
+        0,
+        T_stored,
+        min(10, T_stored),
+        key="n_view_slider"
+    )
     probs_n = df_probs.loc[n_view]
 
     bar_col, table_col = st.columns([2, 2])
@@ -237,7 +273,7 @@ if run:
                 probs_n,
                 columns=["Probability"]
             )
-        )  # bar chart for that n[web:35]
+        )
     with table_col:
         st.markdown("Numeric values at this n")
         st.dataframe(
@@ -256,21 +292,22 @@ if run:
     fig_hm.tight_layout()
     st.pyplot(fig_hm)
 
-    # P^n display
+    # P^n display (uses stored P, not current widgets)
     st.subheader("Transition matrix \(P^n\)")
     n_for_matrix = st.number_input(
-        "Time step n for P^n", min_value=1, max_value=500, value=min(10, T), step=1
+        "Time step n for P^n",
+        min_value=1,
+        max_value=500,
+        value=min(10, T_stored),
+        step=1
     )
-    Pn = matrix_power(P, int(n_for_matrix))
+    Pn = matrix_power(P_stored, int(n_for_matrix))
     df_Pn = pd.DataFrame(Pn, columns=STATE_NAMES, index=STATE_NAMES)
     st.markdown(f"Matrix \(P^{int(n_for_matrix)}\):")
     st.dataframe(df_Pn.style.format("{:.4f}"))
 
-    # Chain properties
+    # Chain properties (from stored P)
     st.subheader("Chain properties")
-
-    irreducible = is_irreducible(P)
-    aperiodic = is_aperiodic(P)
 
     col_ir, col_ap = st.columns(2)
     with col_ir:
@@ -300,7 +337,7 @@ if run:
     (rounded to 2 decimals):
 
     P =
-    {np.array2string(P, precision=3)}
+    {np.array2string(P_stored, precision=3)}
 
     Use a simple text diagram, for example:
 
@@ -328,7 +365,7 @@ if run:
     with states: Discovery, Rabbit Hole, Echo Chamber.
 
     The transition matrix is:
-    {np.array2string(P, precision=3)}
+    {np.array2string(P_stored, precision=3)}
 
     The chain has:
     - irreducible = {irreducible}
@@ -350,4 +387,5 @@ if run:
         st.markdown(textwrap.dedent(explanation))
 
 else:
-    st.info("Adjust the inputs, then click **Run Simulation** once all probabilities are valid.")
+    st.info("Set inputs and click **Run Simulation**. After that, you can move the slider to view probabilities at different n without rerunning the simulation.")
+
