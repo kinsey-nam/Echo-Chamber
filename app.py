@@ -135,7 +135,7 @@ mode = st.sidebar.radio(
     "Simulation mode",
     ["Analytic (probabilities)", "Single run (one path)", "Ensemble (many paths)"],
     index=0
-)  # st.radio to toggle mode[web:80]
+)
 
 T = st.sidebar.number_input(
     "Number of time steps",
@@ -177,7 +177,6 @@ with col_v:
     v0_e = st.number_input("Echo Chamber (v0[2])", 0.0, 1.0, 0.0, 0.01)
     v0 = np.array([v0_d, v0_r, v0_e], dtype=float)
 
-    # For path-based modes, pick a concrete start state
     if mode != "Analytic (probabilities)":
         start_state_name = st.selectbox(
             "Start state for path simulation",
@@ -237,7 +236,7 @@ if not valid_P:
 run = st.button("Run Simulation", disabled=not (valid_v0 and valid_P))
 
 # ----------------------------------------
-# Run and store results in session_state
+# Run and store results
 # ----------------------------------------
 if run and valid_v0 and valid_P:
     st.session_state.T = T
@@ -274,14 +273,9 @@ if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not
     aperiodic = st.session_state.aperiodic
 
     time_steps = np.arange(T_stored + 1)
-    df_probs = pd.DataFrame(
-        probs,
-        columns=STATE_NAMES,
-        index=time_steps
-    )
+    df_probs = pd.DataFrame(probs, columns=STATE_NAMES, index=time_steps)
     df_probs.index.name = "Time step"
 
-    # Line chart + metrics
     line_col, metrics_col = st.columns([3, 1])
     with line_col:
         st.subheader("Analytic state probabilities over time")
@@ -293,8 +287,8 @@ if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not
         st.metric("P(Rabbit Hole)", f"{final_probs['Rabbit Hole']:.3f}")
         st.metric("P(Echo Chamber)", f"{final_probs['Echo Chamber']:.3f}")
 
-    # Slider + bar chart
-    st.subheader("Inspect probabilities at a chosen time step")
+    # Slider + bar chart for all 3 states
+    st.subheader("P(X_n): all three states at a chosen time step")
     n_view = st.slider(
         "Select time step n (analytic)",
         0,
@@ -306,7 +300,7 @@ if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not
 
     bar_col, table_col = st.columns([2, 2])
     with bar_col:
-        st.markdown(f"**P(X_n) at n = {n_view}**")
+        st.markdown(f"**P(X_n) at n = {n_view} for all states**")
         st.bar_chart(
             pd.DataFrame(
                 probs_n,
@@ -315,9 +309,7 @@ if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not
         )
     with table_col:
         st.markdown("Numeric values at this n")
-        st.dataframe(
-            probs_n.to_frame(name="Probability").style.format("{:.4f}")
-        )
+        st.dataframe(probs_n.to_frame(name="Probability").style.format("{:.4f}"))
 
     # Heatmap
     st.subheader("Heatmap: probability of each state over time")
@@ -349,7 +341,6 @@ elif mode == "Single run (one path)" and st.session_state.single_path is not Non
 
     st.subheader("Single simulated path (one user)")
 
-    # Line plot: state index over time
     fig, ax = plt.subplots(figsize=(8, 3))
     ax.step(df_path["Time step"], df_path["State index"], where="post")
     ax.set_yticks([0, 1, 2])
@@ -359,8 +350,8 @@ elif mode == "Single run (one path)" and st.session_state.single_path is not Non
     ax.grid(True, axis="x", alpha=0.3)
     st.pyplot(fig)
 
-    # Bar plot at a chosen n (one-hot of the state)
-    st.subheader("State at a chosen time step")
+    # Slider + bar chart (one-hot over all 3 categories)
+    st.subheader("Which state at a chosen time step?")
     n_view_single = st.slider(
         "Select time step n (single run)",
         0,
@@ -375,7 +366,7 @@ elif mode == "Single run (one path)" and st.session_state.single_path is not Non
 
     col_bar, col_info = st.columns([2, 2])
     with col_bar:
-        st.markdown(f"**State indicator at time n = {n_view_single}**")
+        st.markdown(f"**State indicator at time n = {n_view_single} (all 3 categories)**")
         st.bar_chart(df_one_hot)
     with col_info:
         st.markdown(f"At n = {n_view_single}, the user is in **{STATE_NAMES[state_idx]}**.")
@@ -388,18 +379,14 @@ elif mode == "Ensemble (many paths)" and st.session_state.ensemble_probs is not 
     aperiodic = st.session_state.aperiodic
 
     time_steps = np.arange(T_stored + 1)
-    df_ens = pd.DataFrame(
-        probs_ens,
-        columns=STATE_NAMES,
-        index=time_steps
-    )
+    df_ens = pd.DataFrame(probs_ens, columns=STATE_NAMES, index=time_steps)
     df_ens.index.name = "Time step"
 
     st.subheader("Ensemble average: fraction of users in each state over time")
     st.line_chart(df_ens)
 
-    # Slider + bar chart for ensemble
-    st.subheader("Inspect ensemble fractions at a chosen time step")
+    # Slider + bar chart for all 3 states in ensemble
+    st.subheader("Ensemble fractions at a chosen time step (all 3 categories)")
     n_view_ens = st.slider(
         "Select time step n (ensemble)",
         0,
@@ -411,7 +398,7 @@ elif mode == "Ensemble (many paths)" and st.session_state.ensemble_probs is not 
 
     bar_col, table_col = st.columns([2, 2])
     with bar_col:
-        st.markdown(f"**Fraction of users in each state at n = {n_view_ens}**")
+        st.markdown(f"**Fraction in each state at n = {n_view_ens}**")
         st.bar_chart(
             pd.DataFrame(
                 probs_n_ens,
@@ -420,11 +407,9 @@ elif mode == "Ensemble (many paths)" and st.session_state.ensemble_probs is not 
         )
     with table_col:
         st.markdown("Numeric values at this n")
-        st.dataframe(
-            probs_n_ens.to_frame(name="Fraction").style.format("{:.4f}")
-        )
+        st.dataframe(probs_n_ens.to_frame(name="Fraction").style.format("{:.4f}"))
 
-# Chain properties and AI tools (available whenever we have a stored P)
+# Chain properties and AI tools
 if st.session_state.P is not None:
     P_stored = st.session_state.P
     irreducible = st.session_state.irreducible
@@ -456,7 +441,6 @@ if st.session_state.P is not None:
     st.markdown(f"Matrix \(P^{int(n_for_matrix)}\):")
     st.dataframe(df_Pn.style.format("{:.4f}"))
 
-    # AI: state transition diagram
     st.subheader("AI-generated State Transition Diagram (ASCII)")
 
     diagram_prompt = f"""
