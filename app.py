@@ -50,12 +50,29 @@ def is_valid_transition_matrix(P, tol=1e-6):
     return np.all(np.abs(row_sums - 1.0) <= tol)
 
 def simulate_markov_chain(P, v0, T):
-    """Return an array of shape (T+1, 3) with probability vectors over time."""
+    """Analytic: probabilities over time, shape (T+1, 3)."""
     probs = np.zeros((T + 1, 3))
     probs[0, :] = v0
     for t in range(1, T + 1):
         probs[t, :] = probs[t - 1, :].dot(P)
     return probs
+
+def simulate_single_path(P, start_state, T):
+    """Single random path of states (int 0,1,2) of length T+1."""
+    path = np.zeros(T + 1, dtype=int)
+    path[0] = start_state
+    for t in range(1, T + 1):
+        path[t] = np.random.choice(3, p=P[path[t - 1], :])
+    return path
+
+def simulate_ensemble(P, start_state, T, n_paths):
+    """Ensemble of random paths, returns occupancies over time shape (T+1, 3)."""
+    counts = np.zeros((T + 1, 3), dtype=int)
+    for _ in range(n_paths):
+        path = simulate_single_path(P, start_state, T)
+        for t in range(T + 1):
+            counts[t, path[t]] += 1
+    return counts / n_paths
 
 def matrix_power(P, n):
     return np.linalg.matrix_power(P, n)
@@ -105,22 +122,20 @@ st.markdown(
     "**Echo Chamber** (highly homogeneous content)."
 )
 
-# Initialize session_state containers
-if "probs" not in st.session_state:
-    st.session_state.probs = None
-if "T" not in st.session_state:
-    st.session_state.T = None
-if "P" not in st.session_state:
-    st.session_state.P = None
-if "v0" not in st.session_state:
-    st.session_state.v0 = None
-if "irreducible" not in st.session_state:
-    st.session_state.irreducible = None
-if "aperiodic" not in st.session_state:
-    st.session_state.aperiodic = None
+# Initialize session_state
+for key in ["analytic_probs", "single_path", "ensemble_probs",
+            "T", "P", "v0", "irreducible", "aperiodic"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
 
 # Sidebar controls
 st.sidebar.header("Simulation Controls")
+
+mode = st.sidebar.radio(
+    "Simulation mode",
+    ["Analytic (probabilities)", "Single run (one path)", "Ensemble (many paths)"],
+    index=0
+)  # st.radio to toggle mode[web:80]
 
 T = st.sidebar.number_input(
     "Number of time steps",
@@ -130,17 +145,20 @@ T = st.sidebar.number_input(
     step=1,
 )
 
-n_sims = st.sidebar.number_input(
-    "Number of simulations (informational; model is analytic)",
-    min_value=1,
-    max_value=1000,
-    value=1,
-    step=1,
-)
+if mode == "Ensemble (many paths)":
+    n_paths = st.sidebar.number_input(
+        "Number of paths (ensemble size)",
+        min_value=10,
+        max_value=5000,
+        value=500,
+        step=10,
+    )
+else:
+    n_paths = None
 
 st.sidebar.caption(
-    "Probabilities are computed exactly via \( v_0 P^n \), "
-    "not by Monte Carlo sampling."
+    "Analytic mode uses exact probabilities via \( v_0 P^n \). "
+    "Single/ensemble modes simulate random paths."
 )
 
 # ----------------------------------------
@@ -158,6 +176,17 @@ with col_v:
     v0_r = st.number_input("Rabbit Hole (v0[1])", 0.0, 1.0, 0.0, 0.01)
     v0_e = st.number_input("Echo Chamber (v0[2])", 0.0, 1.0, 0.0, 0.01)
     v0 = np.array([v0_d, v0_r, v0_e], dtype=float)
+
+    # For path-based modes, pick a concrete start state
+    if mode != "Analytic (probabilities)":
+        start_state_name = st.selectbox(
+            "Start state for path simulation",
+            STATE_NAMES,
+            index=0
+        )
+        start_state = STATE_NAMES.index(start_state_name)
+    else:
+        start_state = None
 
 with col_P:
     st.subheader("Transition matrix \(P\)")
@@ -205,29 +234,42 @@ if not valid_P:
         f"Current row sums: {[f'{s:.4f}' for s in P.sum(axis=1)]}"
     )
 
-# Run simulation button
 run = st.button("Run Simulation", disabled=not (valid_v0 and valid_P))
 
-# If clicked, compute once and store in session_state
+# ----------------------------------------
+# Run and store results in session_state
+# ----------------------------------------
 if run and valid_v0 and valid_P:
-    probs = simulate_markov_chain(P, v0, T)
-    st.session_state.probs = probs
     st.session_state.T = T
     st.session_state.P = P
     st.session_state.v0 = v0
     st.session_state.irreducible = is_irreducible(P)
     st.session_state.aperiodic = is_aperiodic(P)
 
+    if mode == "Analytic (probabilities)":
+        st.session_state.analytic_probs = simulate_markov_chain(P, v0, T)
+        st.session_state.single_path = None
+        st.session_state.ensemble_probs = None
+    elif mode == "Single run (one path)":
+        path = simulate_single_path(P, start_state, T)
+        st.session_state.single_path = path
+        st.session_state.analytic_probs = None
+        st.session_state.ensemble_probs = None
+    else:  # Ensemble
+        probs_ens = simulate_ensemble(P, start_state, T, n_paths)
+        st.session_state.ensemble_probs = probs_ens
+        st.session_state.single_path = None
+        st.session_state.analytic_probs = None
+
 # ----------------------------------------
 # Results section
 # ----------------------------------------
 st.header("Results")
 
-if st.session_state.probs is not None:
-    probs = st.session_state.probs
+if mode == "Analytic (probabilities)" and st.session_state.analytic_probs is not None:
+    probs = st.session_state.analytic_probs
     T_stored = st.session_state.T
     P_stored = st.session_state.P
-    v0_stored = st.session_state.v0
     irreducible = st.session_state.irreducible
     aperiodic = st.session_state.aperiodic
 
@@ -241,9 +283,8 @@ if st.session_state.probs is not None:
 
     # Line chart + metrics
     line_col, metrics_col = st.columns([3, 1])
-
     with line_col:
-        st.subheader("State probabilities over time")
+        st.subheader("Analytic state probabilities over time")
         st.line_chart(df_probs)
     with metrics_col:
         st.subheader("Final-step probabilities")
@@ -252,22 +293,20 @@ if st.session_state.probs is not None:
         st.metric("P(Rabbit Hole)", f"{final_probs['Rabbit Hole']:.3f}")
         st.metric("P(Echo Chamber)", f"{final_probs['Echo Chamber']:.3f}")
 
-    # Slider that only reads from stored simulation
+    # Slider + bar chart
     st.subheader("Inspect probabilities at a chosen time step")
-
     n_view = st.slider(
-        "Select time step n",
+        "Select time step n (analytic)",
         0,
         T_stored,
         min(10, T_stored),
-        key="n_view_slider"
+        key="analytic_slider"
     )
     probs_n = df_probs.loc[n_view]
 
     bar_col, table_col = st.columns([2, 2])
-
     with bar_col:
-        st.markdown(f"**Probability distribution at time step n = {n_view}**")
+        st.markdown(f"**P(X_n) at n = {n_view}**")
         st.bar_chart(
             pd.DataFrame(
                 probs_n,
@@ -280,33 +319,117 @@ if st.session_state.probs is not None:
             probs_n.to_frame(name="Probability").style.format("{:.4f}")
         )
 
-    # Heatmap over time
+    # Heatmap
     st.subheader("Heatmap: probability of each state over time")
     fig_hm, ax_hm = plt.subplots(figsize=(6, 3))
     im = ax_hm.imshow(probs.T, aspect="auto", origin="lower", cmap="viridis")
     ax_hm.set_yticks(range(len(STATE_NAMES)))
     ax_hm.set_yticklabels(STATE_NAMES)
     ax_hm.set_xlabel("Time step")
-    ax_hm.set_title("Heatmap of state probabilities")
+    ax_hm.set_title("Heatmap of analytic state probabilities")
     fig_hm.colorbar(im, ax=ax_hm, label="Probability")
     fig_hm.tight_layout()
     st.pyplot(fig_hm)
 
-    # P^n display (uses stored P, not current widgets)
-    st.subheader("Transition matrix \(P^n\)")
-    n_for_matrix = st.number_input(
-        "Time step n for P^n",
-        min_value=1,
-        max_value=500,
-        value=min(10, T_stored),
-        step=1
-    )
-    Pn = matrix_power(P_stored, int(n_for_matrix))
-    df_Pn = pd.DataFrame(Pn, columns=STATE_NAMES, index=STATE_NAMES)
-    st.markdown(f"Matrix \(P^{int(n_for_matrix)}\):")
-    st.dataframe(df_Pn.style.format("{:.4f}"))
+elif mode == "Single run (one path)" and st.session_state.single_path is not None:
+    path = st.session_state.single_path
+    T_stored = st.session_state.T
+    P_stored = st.session_state.P
+    irreducible = st.session_state.irreducible
+    aperiodic = st.session_state.aperiodic
 
-    # Chain properties (from stored P)
+    time_steps = np.arange(T_stored + 1)
+    df_path = pd.DataFrame(
+        {
+            "Time step": time_steps,
+            "State index": path,
+            "State name": [STATE_NAMES[i] for i in path],
+        }
+    )
+
+    st.subheader("Single simulated path (one user)")
+
+    # Line plot: state index over time
+    fig, ax = plt.subplots(figsize=(8, 3))
+    ax.step(df_path["Time step"], df_path["State index"], where="post")
+    ax.set_yticks([0, 1, 2])
+    ax.set_yticklabels(STATE_NAMES)
+    ax.set_xlabel("Time step")
+    ax.set_title("Single path through states")
+    ax.grid(True, axis="x", alpha=0.3)
+    st.pyplot(fig)
+
+    # Bar plot at a chosen n (one-hot of the state)
+    st.subheader("State at a chosen time step")
+    n_view_single = st.slider(
+        "Select time step n (single run)",
+        0,
+        T_stored,
+        min(10, T_stored),
+        key="single_slider"
+    )
+    state_idx = path[n_view_single]
+    one_hot = np.zeros(3)
+    one_hot[state_idx] = 1.0
+    df_one_hot = pd.DataFrame(one_hot, index=STATE_NAMES, columns=["Indicator"])
+
+    col_bar, col_info = st.columns([2, 2])
+    with col_bar:
+        st.markdown(f"**State indicator at time n = {n_view_single}**")
+        st.bar_chart(df_one_hot)
+    with col_info:
+        st.markdown(f"At n = {n_view_single}, the user is in **{STATE_NAMES[state_idx]}**.")
+
+elif mode == "Ensemble (many paths)" and st.session_state.ensemble_probs is not None:
+    probs_ens = st.session_state.ensemble_probs
+    T_stored = st.session_state.T
+    P_stored = st.session_state.P
+    irreducible = st.session_state.irreducible
+    aperiodic = st.session_state.aperiodic
+
+    time_steps = np.arange(T_stored + 1)
+    df_ens = pd.DataFrame(
+        probs_ens,
+        columns=STATE_NAMES,
+        index=time_steps
+    )
+    df_ens.index.name = "Time step"
+
+    st.subheader("Ensemble average: fraction of users in each state over time")
+    st.line_chart(df_ens)
+
+    # Slider + bar chart for ensemble
+    st.subheader("Inspect ensemble fractions at a chosen time step")
+    n_view_ens = st.slider(
+        "Select time step n (ensemble)",
+        0,
+        T_stored,
+        min(10, T_stored),
+        key="ensemble_slider"
+    )
+    probs_n_ens = df_ens.loc[n_view_ens]
+
+    bar_col, table_col = st.columns([2, 2])
+    with bar_col:
+        st.markdown(f"**Fraction of users in each state at n = {n_view_ens}**")
+        st.bar_chart(
+            pd.DataFrame(
+                probs_n_ens,
+                columns=["Fraction"]
+            )
+        )
+    with table_col:
+        st.markdown("Numeric values at this n")
+        st.dataframe(
+            probs_n_ens.to_frame(name="Fraction").style.format("{:.4f}")
+        )
+
+# Chain properties and AI tools (available whenever we have a stored P)
+if st.session_state.P is not None:
+    P_stored = st.session_state.P
+    irreducible = st.session_state.irreducible
+    aperiodic = st.session_state.aperiodic
+
     st.subheader("Chain properties")
 
     col_ir, col_ap = st.columns(2)
@@ -320,9 +443,20 @@ if st.session_state.probs is not None:
         "- **Aperiodic**: returns to a state do not happen on a fixed cycle only."
     )
 
-    # ----------------------------------------
+    st.subheader("Transition matrix \(P^n\)")
+    n_for_matrix = st.number_input(
+        "Time step n for P^n",
+        min_value=1,
+        max_value=500,
+        value=min(10, st.session_state.T if st.session_state.T else 10),
+        step=1
+    )
+    Pn = matrix_power(P_stored, int(n_for_matrix))
+    df_Pn = pd.DataFrame(Pn, columns=STATE_NAMES, index=STATE_NAMES)
+    st.markdown(f"Matrix \(P^{int(n_for_matrix)}\):")
+    st.dataframe(df_Pn.style.format("{:.4f}"))
+
     # AI: state transition diagram
-    # ----------------------------------------
     st.subheader("AI-generated State Transition Diagram (ASCII)")
 
     diagram_prompt = f"""
@@ -355,9 +489,6 @@ if st.session_state.probs is not None:
         )
         st.text(diagram)
 
-    # ----------------------------------------
-    # AI: explanation of irreducible/aperiodic
-    # ----------------------------------------
     st.subheader("AI explanation of chain behaviour")
 
     explain_prompt = f"""
@@ -385,7 +516,5 @@ if st.session_state.probs is not None:
             explain_prompt,
         )
         st.markdown(textwrap.dedent(explanation))
-
 else:
-    st.info("Set inputs and click **Run Simulation**. After that, you can move the slider to view probabilities at different n without rerunning the simulation.")
-
+    st.info("Set inputs and click **Run Simulation** in your chosen mode to see results.")
